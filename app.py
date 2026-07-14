@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 import re
 from pathlib import Path
 from urllib.parse import urlparse
@@ -12,16 +13,12 @@ from PIL import Image, ImageDraw, ImageOps
 APP_DIR = Path(__file__).resolve().parent
 LOGO_PATH = APP_DIR / "logo_ivf_dong_do.png"
 
+# Giữ 4 màu như phiên bản trước theo yêu cầu
 COLOR_THEMES = {
-    "Grey": {
-        "qr": "#7A7F87",
-    },
-    "Xanh Đông Đô IVF": {
-        "qr": "#2E3192",
-    },
-    "Hồng IVF Đông Đô": {
-        "qr": "#F23A8A",
-    },
+    "Hồng nổi bật": {"qr": "#D81B60"},
+    "Tím hiện đại": {"qr": "#6D28D9"},
+    "Xanh học đường": {"qr": "#2563EB"},
+    "Xanh ngọc": {"qr": "#00796B"},
 }
 
 QUALITY_OPTIONS = {
@@ -29,6 +26,8 @@ QUALITY_OPTIONS = {
     "Chất lượng cao": 24,
     "Dùng để in ấn": 32,
 }
+
+DOT_STYLE_OPTIONS = ["Chấm tròn", "Trái tim nhỏ"]
 
 
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -75,6 +74,7 @@ def is_finder_module(row: int, col: int, matrix_size: int, border: int) -> bool:
 
 
 def prepare_logo(logo_path: Path, diameter: int, border_color: tuple[int, int, int]) -> Image.Image:
+    """Đặt logo vào giữa hình tròn nền trắng và viền màu QR."""
     logo = Image.open(logo_path).convert("RGBA")
 
     alpha_bbox = logo.getchannel("A").getbbox()
@@ -111,13 +111,37 @@ def prepare_logo(logo_path: Path, diameter: int, border_color: tuple[int, int, i
     return circle
 
 
+def draw_heart(draw: ImageDraw.ImageDraw, box: tuple[float, float, float, float], fill: tuple[int, int, int]) -> None:
+    """Vẽ một trái tim nhỏ gọn bên trong 1 ô QR."""
+    left, top, right, bottom = box
+    w = right - left
+    h = bottom - top
+    cx = left + w / 2
+
+    # Hai nửa tròn phía trên
+    r = w * 0.24
+    cy = top + h * 0.34
+    draw.ellipse((cx - 2 * r, cy - r, cx, cy + r), fill=fill)
+    draw.ellipse((cx, cy - r, cx + 2 * r, cy + r), fill=fill)
+
+    # Phần đáy hình trái tim
+    points = [
+        (cx - w * 0.45, top + h * 0.40),
+        (cx, bottom - h * 0.10),
+        (cx + w * 0.45, top + h * 0.40),
+    ]
+    draw.polygon(points, fill=fill)
+
+
 def create_branded_qr(
     data: str,
     logo_path: Path,
     qr_color: tuple[int, int, int],
-    box_size: int = 24,
-    logo_percent: int = 25,
+    box_size: int,
+    logo_percent: int,
+    dot_style: str,
 ) -> Image.Image:
+    """Tạo mã QR với logo nằm giữa, hỗ trợ chấm tròn hoặc trái tim nhỏ."""
     border = 4
 
     qr = qrcode.QRCode(
@@ -135,6 +159,7 @@ def create_branded_qr(
 
     image = Image.new("RGB", (image_size, image_size), "white")
     draw = ImageDraw.Draw(image)
+
     dot_margin = max(1, round(box_size * 0.10))
 
     for row in range(matrix_size):
@@ -154,15 +179,17 @@ def create_branded_qr(
                     fill=qr_color,
                 )
             else:
-                draw.ellipse(
-                    (
-                        left + dot_margin,
-                        top + dot_margin,
-                        right - dot_margin,
-                        bottom - dot_margin,
-                    ),
-                    fill=qr_color,
+                inner_box = (
+                    left + dot_margin,
+                    top + dot_margin,
+                    right - dot_margin,
+                    bottom - dot_margin,
                 )
+
+                if dot_style == "Trái tim nhỏ":
+                    draw_heart(draw, inner_box, qr_color)
+                else:
+                    draw.ellipse(inner_box, fill=qr_color)
 
     diameter = int(image_size * (logo_percent / 100))
     if diameter % 2:
@@ -184,6 +211,9 @@ def image_to_png_bytes(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
+# =========================
+# GIAO DIỆN STREAMLIT
+# =========================
 st.set_page_config(
     page_title="Tạo mã QR - IVF Đông Đô",
     page_icon="🔳",
@@ -211,41 +241,17 @@ st.markdown(
             background: rgba(255, 255, 255, 0.94);
             border: 1px solid #eceef5;
             border-radius: 26px;
-            padding: 1.7rem 1.2rem 1.35rem 1.2rem;
+            padding: 1.55rem 1.2rem 1.25rem 1.2rem;
             margin-bottom: 1.2rem;
             box-shadow: 0 14px 36px rgba(41, 49, 90, 0.08);
         }
 
         .hero-title {
-            margin: 0.7rem 0 0.15rem 0;
+            margin: 0.2rem 0 0 0;
             font-size: 2rem;
             font-weight: 900;
-            color: #2e3192;
-            letter-spacing: 0.02em;
-        }
-
-        .hero-subtitle {
-            margin: 0;
-            color: #6b7280;
-            font-size: 0.98rem;
-        }
-
-        .hero-chips {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 0.55rem;
-            margin-top: 0.95rem;
-        }
-
-        .chip {
-            background: #f7f8fd;
-            border: 1px solid #e5e9fa;
-            color: #2e3192;
-            border-radius: 999px;
-            padding: 0.36rem 0.72rem;
-            font-size: 0.82rem;
-            font-weight: 700;
+            color: #1f335c;
+            letter-spacing: 0.01em;
         }
 
         div[data-testid="stForm"] {
@@ -288,12 +294,6 @@ st.markdown(
     """
     <section class="hero">
         <h1 class="hero-title">HỆ THỐNG TẠO MÃ QR</h1>
-        <p class="hero-subtitle">Logo IVF Đông Đô được đặt cân giữa trong khung tròn.</p>
-        <div class="hero-chips">
-            <span class="chip">Grey</span>
-            <span class="chip">Xanh Đông Đô IVF</span>
-            <span class="chip">Hồng IVF Đông Đô</span>
-        </div>
     </section>
     """,
     unsafe_allow_html=True,
@@ -302,7 +302,7 @@ st.markdown(
 with st.form("qr_form"):
     url_input = st.text_input(
         "Đường liên kết cần tạo mã QR",
-        placeholder="Ví dụ: https://www.ivfdongdo.com hoặc https://forms.gle/...",
+        placeholder="Ví dụ: https://docs.google.com/forms/... hoặc https://www.ivfdongdo.com",
         help="Có thể nhập liên kết có hoặc chưa có phần https://",
     )
 
@@ -313,19 +313,33 @@ with st.form("qr_form"):
     )
 
     col1, col2 = st.columns(2)
-
     with col1:
         theme_name = st.selectbox(
             "Màu mã QR",
             options=list(COLOR_THEMES.keys()),
-            index=1,
+            index=0,
         )
-
     with col2:
         quality_label = st.selectbox(
             "Chất lượng ảnh",
             options=list(QUALITY_OPTIONS.keys()),
             index=1,
+        )
+
+    col3, col4 = st.columns(2)
+    with col3:
+        dot_style = st.selectbox(
+            "Kiểu chấm QR",
+            options=DOT_STYLE_OPTIONS,
+            index=0,
+        )
+    with col4:
+        logo_percent = st.slider(
+            "Kích thước logo (%)",
+            min_value=18,
+            max_value=28,
+            value=24,
+            step=1,
         )
 
     submitted = st.form_submit_button(
@@ -350,13 +364,16 @@ if submitted:
                 logo_path=LOGO_PATH,
                 qr_color=hex_to_rgb(COLOR_THEMES[theme_name]["qr"]),
                 box_size=QUALITY_OPTIONS[quality_label],
-                logo_percent=25,
+                logo_percent=logo_percent,
+                dot_style=dot_style,
             )
 
             st.session_state["qr_png"] = image_to_png_bytes(qr_image)
             st.session_state["qr_filename"] = safe_filename(filename_input) + ".png"
             st.session_state["qr_url"] = normalized_url
             st.session_state["qr_theme"] = theme_name
+            st.session_state["qr_dot_style"] = dot_style
+            st.session_state["qr_logo_size"] = logo_percent
 
             st.success("Đã tạo mã QR thành công.")
         except Exception as exc:
@@ -371,7 +388,9 @@ if "qr_png" in st.session_state:
 
     st.caption(
         f"Liên kết đã mã hóa: {st.session_state['qr_url']}  •  "
-        f"Màu: {st.session_state['qr_theme']}"
+        f"Màu: {st.session_state['qr_theme']}  •  "
+        f"Kiểu chấm: {st.session_state['qr_dot_style']}  •  "
+        f"Logo: {st.session_state['qr_logo_size']}%"
     )
 
     st.download_button(
